@@ -8,72 +8,66 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import uvicorn
 import os
 import time
-import brotli
-import gzip
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 
-# ----------------- Decode HTTP Responses -----------------
-def decode_response(r):
-    """Decode compressed HTTP response manually if needed."""
-    content = r.content
-    encoding = r.headers.get("Content-Encoding", "").lower()
-    if "br" in encoding:
-        try:
-            return brotli.decompress(content).decode("utf-8", errors="ignore")
-        except Exception as e:
-            print(f"[WARN] Brotli decompression failed: {e}")
-    if "gzip" in encoding:
-        try:
-            return gzip.decompress(content).decode("utf-8", errors="ignore")
-        except Exception as e:
-            print(f"[WARN] Gzip decompression failed: {e}")
-    return content.decode("utf-8", errors="ignore")
-
 # ----------------- Scraper Logic -----------------
-def scrape_news_page(page_num):
+def scrape_news_page(page_num, retries=2):
     url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/128.0.0.0 Safari/537.36",
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/128.0.0.0 Safari/537.36"),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate",  # disable brotli (causing trouble)
         "Referer": "https://www.moneycontrol.com/",
         "Connection": "keep-alive"
     }
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        html = decode_response(r)
-    except Exception as e:
-        print(f"[ERROR] Request failed for page {page_num}: {e}")
-        return []
 
-    soup = BeautifulSoup(html, "html.parser")
-    news_items = soup.find_all("li", id=re.compile(r"newslist-\d+"))
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            html = r.content.decode("utf-8", errors="ignore")
+            soup = BeautifulSoup(html, "html.parser")
 
-    news_list = []
-    for li in news_items:
-        a_tag = li.find("a")
-        img_tag = li.find("img")
-        title = a_tag.get("title", "").strip() if a_tag else ""
-        link = a_tag["href"].strip() if a_tag and a_tag.has_attr("href") else ""
-        image = ""
-        if img_tag:
-            image = img_tag.get("data-src", "") or img_tag.get("src", "")
-            if image.startswith("//"):
-                image = "https:" + image
-            elif image.startswith("/"):
-                image = "https://www.moneycontrol.com" + image
-        if title and link:
-            news_list.append({
-                "title": title,
-                "link": link,
-                "image": image,
-            })
-    return news_list
+            # Debug: log the <title>
+            page_title = soup.find("title").text if soup.find("title") else "No Title"
+            print(f"[DEBUG] Page {page_num} Title: {page_title}")
+
+            news_items = soup.find_all("li", id=re.compile(r"newslist-\d+"))
+            if news_items:
+                news_list = []
+                for li in news_items:
+                    a_tag = li.find("a")
+                    img_tag = li.find("img")
+                    title = a_tag.get("title", "").strip() if a_tag else ""
+                    link = a_tag["href"].strip() if a_tag and a_tag.has_attr("href") else ""
+                    image = ""
+                    if img_tag:
+                        image = img_tag.get("data-src", "") or img_tag.get("src", "")
+                        if image.startswith("//"):
+                            image = "https:" + image
+                        elif image.startswith("/"):
+                            image = "https://www.moneycontrol.com" + image
+                    if title and link:
+                        news_list.append({
+                            "title": title,
+                            "link": link,
+                            "image": image,
+                        })
+                return news_list
+
+            print(f"[WARN] No news found on attempt {attempt+1}, retrying...")
+            time.sleep(2)
+
+        except Exception as e:
+            print(f"[ERROR] Request failed for page {page_num}, attempt {attempt+1}: {e}")
+            time.sleep(2)
+
+    print(f"[FAIL] No news found for page {page_num} after {retries} attempts.")
+    return []
 
 def scrape_all_news(num_pages=5):
     all_news = []
@@ -135,7 +129,6 @@ def get_news():
     else:
         print("Serving from cache...")
 
-    # Pretty print JSON manually for browsers
     return JSONResponse(content=json.loads(json.dumps(cache["data"], indent=2)))
 
 if __name__ == "__main__":
