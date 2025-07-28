@@ -12,22 +12,22 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 
-# Load ScraperAPI key
+# ScraperAPI key
 API_KEY = os.getenv("SCRAPERAPI_KEY")
 if not API_KEY:
     print("[WARN] SCRAPERAPI_KEY not set. Add it in Render Dashboard.")
 
-def scrape_news_page(page_num, retries=2):
+def scrape_news_page(page_num=1, retries=2):
     if not API_KEY:
         print("[ERROR] No SCRAPERAPI_KEY provided.")
         return []
 
     target_url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
-    url = f"https://api.scraperapi.com?api_key={API_KEY}&url={target_url}&render=true"
+    url = f"https://api.scraperapi.com?api_key={API_KEY}&url={target_url}&render=true&wait=5"
 
     for attempt in range(retries):
         try:
-            r = requests.get(url, timeout=30)
+            r = requests.get(url, timeout=60)
             if r.status_code != 200:
                 print(f"[ERROR] Status {r.status_code} for page {page_num}")
                 continue
@@ -69,19 +69,11 @@ def scrape_news_page(page_num, retries=2):
     print(f"[FAIL] No news found for page {page_num} after {retries} attempts.")
     return []
 
+def scrape_all_news():
+    print("Scraping only page 1 via ScraperAPI...")
+    return scrape_news_page(page_num=1)
 
-def scrape_all_news(num_pages=5):
-    all_news = []
-    for page in range(1, num_pages + 1):
-        print(f"Scraping page {page} via ScraperAPI...")
-        page_news = scrape_news_page(page)
-        if not page_news:
-            print(f"No news found on page {page}, stopping.")
-            break
-        all_news.extend(page_news)
-        time.sleep(1)
-    return all_news
-
+# ----------------- FastAPI Setup -----------------
 cache = {"data": [], "timestamp": datetime.min}
 
 def ping_self():
@@ -124,7 +116,7 @@ def get_news():
     global cache
     if datetime.now() - cache["timestamp"] > timedelta(minutes=15):
         print("Refreshing cache with fresh scrape via ScraperAPI...")
-        cache["data"] = scrape_all_news(num_pages=5)
+        cache["data"] = scrape_all_news()
         cache["timestamp"] = datetime.now()
     else:
         print("Serving from cache...")
