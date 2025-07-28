@@ -12,12 +12,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 
-# Get your ScraperAPI key from Render environment variables
+# Load ScraperAPI key
 API_KEY = os.getenv("SCRAPERAPI_KEY")
 if not API_KEY:
-    raise ValueError("SCRAPERAPI_KEY environment variable not set. Please add it in Render Dashboard.")
+    print("[WARN] SCRAPERAPI_KEY not set. Add it in Render Dashboard.")
 
 def scrape_news_page(page_num, retries=2):
+    if not API_KEY:
+        print("[ERROR] No SCRAPERAPI_KEY provided.")
+        return []
+
     target_url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
     url = f"http://api.scraperapi.com?api_key={API_KEY}&url={target_url}&render=true"
 
@@ -59,7 +63,7 @@ def scrape_news_page(page_num, retries=2):
             time.sleep(2)
 
         except Exception as e:
-            print(f"[ERROR] ScraperAPI attempt {attempt+1} failed for page {page_num}: {e}")
+            print(f"[ERROR] ScraperAPI attempt {attempt+1} failed: {e}")
             time.sleep(2)
 
     print(f"[FAIL] No news found for page {page_num} after {retries} attempts.")
@@ -77,7 +81,6 @@ def scrape_all_news(num_pages=5):
         time.sleep(1)
     return all_news
 
-# ----------------- FastAPI Setup -----------------
 cache = {"data": [], "timestamp": datetime.min}
 
 def ping_self():
@@ -124,8 +127,11 @@ def get_news():
         cache["timestamp"] = datetime.now()
     else:
         print("Serving from cache...")
-
     return JSONResponse(content=json.loads(json.dumps(cache["data"], indent=2)))
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
