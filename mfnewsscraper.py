@@ -12,45 +12,27 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 
-# ----------------- Setup Session -----------------
-session = requests.Session()
-session.headers.update({
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/128.0.0.0 Safari/537.36"),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",  # disable brotli
-    "Referer": "https://www.moneycontrol.com/",
-    "Connection": "keep-alive"
-})
+# Get your ScraperAPI key from Render environment variables
+API_KEY = os.getenv("SCRAPERAPI_KEY")
+if not API_KEY:
+    raise ValueError("SCRAPERAPI_KEY environment variable not set. Please add it in Render Dashboard.")
 
-# Optional: Fake cookies to look like a returning visitor
-session.cookies.update({
-    "mc_user": "guest",
-    "mc_sess": "fake_session_12345"
-})
-
-# ----------------- Scraper Logic -----------------
 def scrape_news_page(page_num, retries=2):
-    url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
+    target_url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
+    url = f"http://api.scraperapi.com?api_key={API_KEY}&url={target_url}&render=true"
 
     for attempt in range(retries):
         try:
-            r = session.get(url, timeout=15)
-            html = r.content.decode("utf-8", errors="ignore")
-            soup = BeautifulSoup(html, "html.parser")
+            r = requests.get(url, timeout=30)
+            if r.status_code != 200:
+                print(f"[ERROR] Status {r.status_code} for page {page_num}")
+                continue
 
-            # Debug: log the <title>
+            soup = BeautifulSoup(r.text, "html.parser")
             page_title = soup.find("title").text if soup.find("title") else "No Title"
-            print(f"[DEBUG] Page {page_num} Title: {page_title}")
+            print(f"[DEBUG] Page {page_num} Title via ScraperAPI: {page_title}")
 
-            # Try main selector
             news_items = soup.find_all("li", id=re.compile(r"newslist-\d+"))
-            # Fallback selectors
-            if not news_items:
-                news_items = soup.select("ul#cagetory li") or soup.select("div.news_list li")
-
             if news_items:
                 news_list = []
                 for li in news_items:
@@ -77,7 +59,7 @@ def scrape_news_page(page_num, retries=2):
             time.sleep(2)
 
         except Exception as e:
-            print(f"[ERROR] Request failed for page {page_num}, attempt {attempt+1}: {e}")
+            print(f"[ERROR] ScraperAPI attempt {attempt+1} failed for page {page_num}: {e}")
             time.sleep(2)
 
     print(f"[FAIL] No news found for page {page_num} after {retries} attempts.")
@@ -86,7 +68,7 @@ def scrape_news_page(page_num, retries=2):
 def scrape_all_news(num_pages=5):
     all_news = []
     for page in range(1, num_pages + 1):
-        print(f"Scraping page {page}...")
+        print(f"Scraping page {page} via ScraperAPI...")
         page_news = scrape_news_page(page)
         if not page_news:
             print(f"No news found on page {page}, stopping.")
@@ -103,7 +85,7 @@ def ping_self():
         app_url = os.environ.get("RENDER_EXTERNAL_URL")
         if app_url:
             print(f"Pinging {app_url} ...")
-            session.get(app_url)
+            requests.get(app_url)
             print("Pinged successfully.")
         else:
             print("No external URL set for pinging.")
@@ -137,7 +119,7 @@ def root():
 def get_news():
     global cache
     if datetime.now() - cache["timestamp"] > timedelta(minutes=15):
-        print("Refreshing cache with fresh scrape...")
+        print("Refreshing cache with fresh scrape via ScraperAPI...")
         cache["data"] = scrape_all_news(num_pages=5)
         cache["timestamp"] = datetime.now()
     else:
@@ -146,4 +128,4 @@ def get_news():
     return JSONResponse(content=json.loads(json.dumps(cache["data"], indent=2)))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
