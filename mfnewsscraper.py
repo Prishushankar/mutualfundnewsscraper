@@ -23,7 +23,7 @@ def scrape_news_page(page_num, retries=2):
         return []
 
     target_url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
-    url = f"http://api.scraperapi.com?api_key={API_KEY}&url={target_url}&render=true"
+    url = f"https://api.scraperapi.com?api_key={API_KEY}&url={target_url}&render=true"
 
     for attempt in range(retries):
         try:
@@ -68,6 +68,7 @@ def scrape_news_page(page_num, retries=2):
 
     print(f"[FAIL] No news found for page {page_num} after {retries} attempts.")
     return []
+
 
 def scrape_all_news(num_pages=5):
     all_news = []
