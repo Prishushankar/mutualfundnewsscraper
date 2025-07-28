@@ -12,23 +12,32 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 
+# ----------------- Setup Session -----------------
+session = requests.Session()
+session.headers.update({
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/128.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",  # disable brotli
+    "Referer": "https://www.moneycontrol.com/",
+    "Connection": "keep-alive"
+})
+
+# Optional: Fake cookies to look like a returning visitor
+session.cookies.update({
+    "mc_user": "guest",
+    "mc_sess": "fake_session_12345"
+})
+
 # ----------------- Scraper Logic -----------------
 def scrape_news_page(page_num, retries=2):
     url = f"https://www.moneycontrol.com/news/business/mutual-funds/page-{page_num}"
-    headers = {
-        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/128.0.0.0 Safari/537.36"),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate",  # disable brotli (causing trouble)
-        "Referer": "https://www.moneycontrol.com/",
-        "Connection": "keep-alive"
-    }
 
     for attempt in range(retries):
         try:
-            r = requests.get(url, headers=headers, timeout=15)
+            r = session.get(url, timeout=15)
             html = r.content.decode("utf-8", errors="ignore")
             soup = BeautifulSoup(html, "html.parser")
 
@@ -36,7 +45,12 @@ def scrape_news_page(page_num, retries=2):
             page_title = soup.find("title").text if soup.find("title") else "No Title"
             print(f"[DEBUG] Page {page_num} Title: {page_title}")
 
+            # Try main selector
             news_items = soup.find_all("li", id=re.compile(r"newslist-\d+"))
+            # Fallback selectors
+            if not news_items:
+                news_items = soup.select("ul#cagetory li") or soup.select("div.news_list li")
+
             if news_items:
                 news_list = []
                 for li in news_items:
@@ -89,7 +103,7 @@ def ping_self():
         app_url = os.environ.get("RENDER_EXTERNAL_URL")
         if app_url:
             print(f"Pinging {app_url} ...")
-            requests.get(app_url)
+            session.get(app_url)
             print("Pinged successfully.")
         else:
             print("No external URL set for pinging.")
